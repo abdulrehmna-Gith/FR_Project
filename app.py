@@ -54,29 +54,6 @@ async def embed(name: str, file: UploadFile = File(...)):
     return {"face_found": True, "saved_in_qdrant": True, "name": name,
             "embedding_size": len(emb), "embedding": emb.tolist()}
 
-
-# @app.post("/recognize")
-# async def recognize(file: UploadFile = File(...)):
-#     try:
-#         img = Image.open(io.BytesIO(await file.read())).convert("RGB")
-#         emb = get_embedding(img)
-#         if emb is None:
-#             return {"name": "No face found"}
-
-#         if not qdrant.collection_exists(COLLECTION):
-#             return {"error": "No faces saved yet. Use /embed with a name first."}
-
-#         hits = qdrant.query_points(COLLECTION, query=emb.tolist(), limit=1).points
-#         if not hits:
-#             return {"name": "Database is empty"}
-
-#         best = hits[0]
-#         if best.score >= 0.5:
-#             return {"name": best.payload["name"], "confidence": round(best.score, 3)}
-#         return {"name": "Unknown", "confidence": round(best.score, 3)}
-#     except Exception as e:
-#         return {"error": str(e)}
-
 @app.post("/recognize")
 async def recognize(file: UploadFile = File(...)):
     try:
