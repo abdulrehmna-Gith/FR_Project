@@ -43,7 +43,7 @@ preprocess -> face detector -> postprocess (align + crop) -> ArcFace
 ## Project structure
 
 ```
-demo2/
+FR_Project/
 ├── app.py                  FastAPI app
 ├── face_utils.py           helper code for /detect
 ├── README.md
@@ -62,11 +62,11 @@ demo2/
 ## Step 1: Download the project
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/demo2.git
-cd demo2
+git clone https://github.com/abdulrehmna-Gith/FR_Project.git
+cd FR_Project
 ```
 
-You should now be inside the `demo2` folder. Check with `ls`.
+You should now be inside the `FR_Project` folder. Check with `ls`.
 
 ## Step 2: Create a Python environment
 
@@ -196,7 +196,7 @@ curl -s localhost:8000/v2/models/face_pipeline/ready -o /dev/null -w "%{http_cod
 Qdrant is the database that stores the embeddings.
 
 ```bash
-cd demo2
+cd FR_Project
 docker run --rm -p 6333:6333 -v "$PWD/qdrant_data":/qdrant/storage qdrant/qdrant
 ```
 
@@ -209,7 +209,7 @@ Leave this terminal open.
 ## Step 8: Start FastAPI (Terminal 3)
 
 ```bash
-cd demo2
+cd FR_Project
 source venv/bin/activate
 uvicorn app:app --reload --port 8080
 ```
@@ -306,7 +306,7 @@ The `inference_count` goes up every time a photo goes through the model.
 | `failed to stat file .../model.onnx` | Model file is missing | Repeat Step 5 |
 | `Python model file not found ... model.py` | File has a wrong name, like `mode1.py` | Rename it to `model.py` |
 | `Stub process is not healthy` | Not enough shared memory, or `model.py` is missing | Start Triton with `--shm-size=1g` and check the file name |
-| `ModuleNotFoundError: face_utils` | You are not in the project folder | Run `cd demo2` |
+| `ModuleNotFoundError: face_utils` | You are not in the project folder | Run `cd FR_Project` |
 | `NameError: np is not defined` | Missing import | Add `import numpy as np` at the top of `app.py` |
 | `Method Not Allowed` in the browser | A browser address bar sends GET, but the endpoint needs POST | Use the `/docs` page |
 | `Connection refused` | Triton or Qdrant is not running | Check Steps 6 and 7 |
@@ -318,16 +318,4 @@ The `inference_count` goes up every time a photo goes through the model.
 ## Notes
 
 - This project runs on **CPU**. For GPU, remove `KIND_CPU` from the configs and use the NVIDIA Container Toolkit.
-- The detector is InsightFace's **SCRFD** (`det_10g.onnx`). The recognizer is **ArcFace** (`w600k_r50.onnx`).
-- The pipeline handles **one face per photo** (the best one).
-- Face data is biometric data. Use only your own photos, or photos with permission.
-
-## What I want to add next
-
-- A `/register` endpoint
-- GPU support with TensorRT
-- Support for many faces in one photo
-
-## Built with
-
-NVIDIA Triton, ONNX Runtime, InsightFace (ArcFace), Qdrant, FastAPI, Docker, Python
+-
