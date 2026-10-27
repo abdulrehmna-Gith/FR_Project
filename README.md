@@ -318,4 +318,3 @@ The `inference_count` goes up every time a photo goes through the model.
 ## Notes
 
 - This project runs on **CPU**. For GPU, remove `KIND_CPU` from the configs and use the NVIDIA Container Toolkit.
--
