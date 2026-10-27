@@ -6,3 +6,7 @@ triton.log
 *.jpg
 *.jpeg
 model-repository/
+.vscode/
+model_repository/densenet_onnx/
+model_repository/resnet50_onnx/
+model_repository/retinaface/1/config.pbtxt
