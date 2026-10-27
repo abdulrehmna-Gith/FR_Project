@@ -1,0 +1,4 @@
+name: "arcface"
+backend: "onnxruntime"
+max_batch_size: 0
+instance_group [ { kind: KIND_CPU } ]

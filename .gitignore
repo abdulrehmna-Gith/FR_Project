@@ -1,0 +1,8 @@
+venv/
+__pycache__/
+qdrant_data/
+triton.log
+*.onnx
+*.jpg
+*.jpeg
+model-repository/

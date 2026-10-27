@@ -1,0 +1,54 @@
+name: "face_pipeline"
+platform: "ensemble"
+max_batch_size: 0
+input [ { name: "IMAGE", data_type: TYPE_UINT8, dims: [640, 640, 3] } ]
+output [
+  { name: "EMBEDDING",  data_type: TYPE_FP32, dims: [1, 512] },
+  { name: "FACE_SCORE", data_type: TYPE_FP32, dims: [1] }
+]
+ensemble_scheduling {
+  step [
+    {
+      model_name: "preprocess"
+      model_version: -1
+      input_map  { key: "IMAGE"        value: "IMAGE" }
+      output_map { key: "PREPROCESSED" value: "pre" }
+    },
+    {
+      model_name: "retinaface"
+      model_version: -1
+      input_map  { key: "input.1" value: "pre" }
+      output_map { key: "448" value: "score_8" }
+      output_map { key: "451" value: "box_8" }
+      output_map { key: "454" value: "kps_8" }
+      output_map { key: "471" value: "score_16" }
+      output_map { key: "474" value: "box_16" }
+      output_map { key: "477" value: "kps_16" }
+      output_map { key: "494" value: "score_32" }
+      output_map { key: "497" value: "box_32" }
+      output_map { key: "500" value: "kps_32" }
+    },
+    {
+      model_name: "postprocess"
+      model_version: -1
+      input_map  { key: "IMAGE"    value: "IMAGE" }
+      input_map  { key: "SCORE_8"  value: "score_8" }
+      input_map  { key: "BOX_8"    value: "box_8" }
+      input_map  { key: "KPS_8"    value: "kps_8" }
+      input_map  { key: "SCORE_16" value: "score_16" }
+      input_map  { key: "BOX_16"   value: "box_16" }
+      input_map  { key: "KPS_16"   value: "kps_16" }
+      input_map  { key: "SCORE_32" value: "score_32" }
+      input_map  { key: "BOX_32"   value: "box_32" }
+      input_map  { key: "KPS_32"   value: "kps_32" }
+      output_map { key: "FACE"       value: "face" }
+      output_map { key: "FACE_SCORE" value: "FACE_SCORE" }
+    },
+    {
+      model_name: "arcface"
+      model_version: -1
+      input_map  { key: "input.1" value: "face" }
+      output_map { key: "683"     value: "EMBEDDING" }
+    }
+  ]
+}

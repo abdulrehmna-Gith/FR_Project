@@ -1,0 +1,20 @@
+name: "postprocess"
+backend: "python"
+max_batch_size: 0
+input [
+  { name: "IMAGE",    data_type: TYPE_UINT8, dims: [640, 640, 3] },
+  { name: "SCORE_8",  data_type: TYPE_FP32,  dims: [12800, 1] },
+  { name: "BOX_8",    data_type: TYPE_FP32,  dims: [12800, 4] },
+  { name: "KPS_8",    data_type: TYPE_FP32,  dims: [12800, 10] },
+  { name: "SCORE_16", data_type: TYPE_FP32,  dims: [3200, 1] },
+  { name: "BOX_16",   data_type: TYPE_FP32,  dims: [3200, 4] },
+  { name: "KPS_16",   data_type: TYPE_FP32,  dims: [3200, 10] },
+  { name: "SCORE_32", data_type: TYPE_FP32,  dims: [800, 1] },
+  { name: "BOX_32",   data_type: TYPE_FP32,  dims: [800, 4] },
+  { name: "KPS_32",   data_type: TYPE_FP32,  dims: [800, 10] }
+]
+output [
+  { name: "FACE",       data_type: TYPE_FP32, dims: [1, 3, 112, 112] },
+  { name: "FACE_SCORE", data_type: TYPE_FP32, dims: [1] }
+]
+instance_group [ { kind: KIND_CPU } ]
