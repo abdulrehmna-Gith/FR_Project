@@ -1,0 +1,171 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: face-ui-config
+data:
+  default.conf: |
+    server {
+      listen 80;
+      client_max_body_size 20m;
+      location / {
+        root /usr/share/nginx/html;
+        index index.html;
+      }
+      location /api/ {
+        proxy_pass http://face-app:8080/;
+        proxy_read_timeout 120s;
+      }
+      location /qdrant/ {
+        proxy_pass http://qdrant:6333/;
+      }
+    }
+  index.html: |
+    <!doctype html>
+    <html>
+    <head>
+    <meta charset="utf-8">
+    <title>Face Manager</title>
+    <style>
+      body{font-family:sans-serif;max-width:700px;margin:30px auto;padding:0 15px}
+      section{border:1px solid #ccc;border-radius:8px;padding:15px;margin-bottom:20px}
+      li{margin:6px 0}
+      button{margin-left:6px}
+      pre{background:#f4f4f4;padding:10px;overflow:auto}
+    </style>
+    </head>
+    <body>
+    <h1>Face Manager</h1>
+
+    <section>
+      <h2>Add a face</h2>
+      <input id="name" placeholder="Name">
+      <input id="addf" type="file" accept="image/*">
+      <button onclick="add()">Save</button>
+      <p id="addmsg"></p>
+    </section>
+
+    <section>
+      <h2>Saved faces</h2>
+      <button onclick="load()">Refresh</button>
+      <ul id="list"></ul>
+    </section>
+
+    <section>
+      <h2>Recognize</h2>
+      <input id="recf" type="file" accept="image/*">
+      <button onclick="rec()">Recognize</button>
+      <pre id="recout"></pre>
+    </section>
+
+    <script>
+    const Q = '/qdrant/collections/faces/points';
+
+    async function load() {
+      const ul = document.getElementById('list');
+      ul.innerHTML = '';
+      try {
+        const r = await fetch(Q + '/scroll', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({limit: 200, with_payload: true, with_vector: false})
+        });
+        const d = await r.json();
+        const pts = (d.result && d.result.points) || [];
+        if (!pts.length) { ul.textContent = 'No saved faces yet.'; return; }
+        pts.forEach(p => {
+          const li = document.createElement('li');
+          li.textContent = ((p.payload && p.payload.name) || '?') + ' (id ' + p.id + ')';
+          const b = document.createElement('button');
+          b.textContent = 'Delete';
+          b.onclick = () => del(p.id);
+          li.appendChild(b);
+          ul.appendChild(li);
+        });
+      } catch (e) { ul.textContent = 'Error: ' + e; }
+    }
+
+    async function del(id) {
+      if (!confirm('Delete this face?')) return;
+      await fetch(Q + '/delete?wait=true', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({points: [id]})
+      });
+      load();
+    }
+
+    async function add() {
+      const name = document.getElementById('name').value.trim();
+      const f = document.getElementById('addf').files[0];
+      const msg = document.getElementById('addmsg');
+      if (!name || !f) { msg.textContent = 'Enter a name and choose a photo.'; return; }
+      msg.textContent = 'Saving...';
+      const fd = new FormData();
+      fd.append('file', f);
+      try {
+        const r = await fetch('/api/embed?name=' + encodeURIComponent(name), {method: 'POST', body: fd});
+        msg.textContent = r.ok ? 'Saved.' : 'Error ' + r.status + ': ' + await r.text();
+      } catch (e) { msg.textContent = 'Error: ' + e; }
+      load();
+    }
+
+    async function rec() {
+      const f = document.getElementById('recf').files[0];
+      const out = document.getElementById('recout');
+      if (!f) { out.textContent = 'Choose a photo.'; return; }
+      out.textContent = 'Working...';
+      const fd = new FormData();
+      fd.append('file', f);
+      try {
+        const r = await fetch('/api/recognize', {method: 'POST', body: fd});
+        const t = await r.text();
+        try { out.textContent = JSON.stringify(JSON.parse(t), null, 2); } catch (e) { out.textContent = t; }
+      } catch (e) { out.textContent = 'Error: ' + e; }
+    }
+
+    load();
+    </script>
+    </body>
+    </html>
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: face-ui
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: face-ui}
+  template:
+    metadata:
+      labels: {app: face-ui}
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:alpine
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 80
+          volumeMounts:
+            - name: cfg
+              mountPath: /etc/nginx/conf.d/default.conf
+              subPath: default.conf
+            - name: cfg
+              mountPath: /usr/share/nginx/html/index.html
+              subPath: index.html
+      volumes:
+        - name: cfg
+          configMap:
+            name: face-ui-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: face-ui
+spec:
+  type: NodePort
+  selector: {app: face-ui}
+  ports:
+    - port: 80
+      targetPort: 80
+      nodePort: 30090
