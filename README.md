@@ -7,6 +7,8 @@ This project recognizes a person from a photo. It is made for beginners who want
 - How to deploy models on Triton
 - How an ensemble joins many models into one call
 - How Qdrant stores and searches face embeddings
+- How to run the project on Kubernetes
+- How Argo CD deploys it from Git (GitOps)
 
 ## Words you should know
 
@@ -16,6 +18,8 @@ This project recognizes a person from a photo. It is made for beginners who want
 | Embedding | A list of 512 numbers that describes a face |
 | Ensemble | A pipeline in Triton that runs many models in one call |
 | Vector database | A database that finds the closest embedding (Qdrant) |
+| Kubernetes | A system that runs and manages containers |
+| Argo CD | A tool that keeps the cluster the same as the YAML in Git |
 
 ## How it works
 
@@ -39,6 +43,7 @@ preprocess -> face detector -> postprocess (align + crop) -> ArcFace
 - **Python 3** and **git** installed
 - About **30 GB free disk space** (the Triton image alone is about 20 GB)
 - You need **3 terminals** open: one for Triton, one for Qdrant, one for FastAPI
+- For the Kubernetes part: a running cluster and **kubectl**
 
 ## Project structure
 
@@ -47,12 +52,14 @@ FR_Project/
 ├── app.py                  FastAPI app
 ├── face_utils.py           helper code for /detect
 ├── README.md
-└── model_repository/
-    ├── arcface/            ArcFace model (you add model.onnx)
-    ├── retinaface/         face detector (you add model.onnx)
-    ├── preprocess/         Python step before the detector
-    ├── postprocess/        Python step after the detector (align + crop)
-    └── face_pipeline/      the ensemble that connects all steps
+├── model_repository/
+│   ├── arcface/            ArcFace model (you add model.onnx)
+│   ├── retinaface/         face detector (you add model.onnx)
+│   ├── preprocess/         Python step before the detector
+│   ├── postprocess/        Python step after the detector (align + crop)
+│   └── face_pipeline/      the ensemble that connects all steps
+├── k8s/                    Kubernetes YAML (Deployments and Services)
+└── argocd/                 Argo CD Application YAML
 ```
 
 ---
@@ -298,6 +305,143 @@ The `inference_count` goes up every time a photo goes through the model.
 
 ---
 
+# Run on Kubernetes
+
+The `k8s/` folder has a Deployment and a Service for each part of the project.
+
+| Component | Service port | NodePort |
+|---|---|---|
+| `face-ui` | 80 | 30090 |
+| `face-app` | 8080 | 30080 |
+| `triton` | 8000, 8001 | 30000, 30001 |
+| `qdrant` | 6333 | 30333 |
+
+Deploy and check:
+
+```bash
+kubectl apply -f k8s/
+kubectl get all
+```
+
+All 4 pods should show `1/1 Running`. Triton can take a few minutes to start.
+
+Open the UI at `http://<node-ip>:30090`.
+
+Useful commands:
+
+```bash
+kubectl logs deploy/face-app           # see app logs
+kubectl describe pod <pod-name>        # see why a pod fails
+kubectl rollout restart deploy/face-app
+```
+
+---
+
+# Deploy with Argo CD
+
+Argo CD runs inside the cluster, watches this GitHub repo, and keeps the cluster the same as the YAML in `k8s/`.
+
+```
+git push -> Argo CD sees the change -> Argo CD updates the cluster
+```
+
+## Install Argo CD
+
+```bash
+kubectl create namespace argocd
+kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+kubectl get pods -n argocd
+```
+
+Install the CLI (download to `/tmp` to avoid file conflicts):
+
+```bash
+cd /tmp
+curl -sSL -o argocd-linux-amd64 https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64
+sudo install -m 555 argocd-linux-amd64 /usr/local/bin/argocd
+rm argocd-linux-amd64
+cd ~/Desktop/FR_Project
+```
+
+## Log in
+
+Terminal 1 (leave it open):
+
+```bash
+kubectl port-forward svc/argocd-server -n argocd 8443:443
+```
+
+Terminal 2:
+
+```bash
+argocd admin initial-password -n argocd
+argocd login localhost:8443 --username admin --insecure
+```
+
+The UI is at https://localhost:8443 (user `admin`).
+
+## Create the apps
+
+Each component has one Application file in `argocd/`. Example for `face-ui`:
+
+```yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: face-ui
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/abdulrehmna-Gith/FR_Project.git
+    targetRevision: main
+    path: k8s/face-ui
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: default
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+```
+
+Apply and check:
+
+```bash
+kubectl apply -f argocd/
+argocd app list
+argocd app get face-ui
+```
+
+## Main commands
+
+| Task | Command |
+|---|---|
+| List apps | `argocd app list` |
+| See status | `argocd app get <app>` |
+| See differences | `argocd app diff <app>` |
+| Deploy now | `argocd app sync <app>` |
+
+## Give a teammate access to only face-ui
+
+Do not share your admin kubeconfig. Use an Argo CD account that can only see and sync `face-ui`:
+
+```bash
+kubectl edit configmap argocd-cm -n argocd
+#   data:
+#     accounts.teamlead: login
+
+kubectl edit configmap argocd-rbac-cm -n argocd
+#   data:
+#     policy.csv: |
+#       p, teamlead, applications, get, default/face-ui, allow
+#       p, teamlead, applications, sync, default/face-ui, allow
+
+argocd account update-password --account teamlead --new-password <password>
+```
+
+---
+
 # Common errors and fixes
 
 | Error | Reason | Fix |
@@ -312,9 +456,15 @@ The `inference_count` goes up every time a photo goes through the model.
 | `Connection refused` | Triton or Qdrant is not running | Check Steps 6 and 7 |
 | `/recognize` always says `Unknown` for the same person | Old saved faces from older code | Delete the faces (see above) and save again with `/embed` |
 | Triton exits after `Ctrl + C` with a long wait | FastAPI still has a connection open | Stop FastAPI first |
+| `argocd: command not found` | CLI is not installed | Install it (see Deploy with Argo CD) |
+| `Argo CD server address unspecified` | You are not logged in | Run `argocd login` |
+| `application not found` | The app was never created | Run `kubectl apply -f argocd/` |
+| `curl: (23) client returned ERROR on write` | curl cannot write the file | Download to `/tmp` |
+| Pod in `ImagePullBackOff` or `CrashLoopBackOff` | Wrong image, or the app crashes | `kubectl describe pod <pod>` and `kubectl logs <pod>` |
 
 ---
 
 ## Notes
 
 - This project runs on **CPU**. For GPU, remove `KIND_CPU` from the configs and use the NVIDIA Container Toolkit.
+- Never push a kubeconfig, token or password to Git.
