@@ -1,0 +1,36 @@
+name: track-changes
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Who and what
+        run: |
+          echo "Event:  ${{ github.event_name }}"
+          echo "Author: ${{ github.actor }}"
+          echo "Branch: ${{ github.ref_name }}"
+          echo "Commit: ${{ github.sha }}"
+          git log -1 --pretty=format:"Message: %s"
+
+      - name: Changed files
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE=${{ github.event.pull_request.base.sha }}
+          else
+            BASE=${{ github.event.before }}
+          fi
+          # first push of a branch has an all-zero "before", so compare with the parent commit
+          if [ -z "${BASE//0/}" ]; then BASE=$(git rev-parse HEAD^ 2>/dev/null || git hash-object -t tree /dev/null); fi
+          echo "## Changed files" | tee -a "$GITHUB_STEP_SUMMARY"
+          git diff --name-status "$BASE" "${{ github.sha }}" | tee -a "$GITHUB_STEP_SUMMARY"
+          echo ""
+          git diff --stat "$BASE" "${{ github.sha }}"
