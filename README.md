@@ -9,6 +9,7 @@ This project recognizes a person from a photo. It is made for beginners who want
 - How Qdrant stores and searches face embeddings
 - How to run the project on Kubernetes
 - How Argo CD deploys it from Git (GitOps)
+- How GitHub Actions tracks every change in the repo
 
 ## Words you should know
 
@@ -20,6 +21,7 @@ This project recognizes a person from a photo. It is made for beginners who want
 | Vector database | A database that finds the closest embedding (Qdrant) |
 | Kubernetes | A system that runs and manages containers |
 | Argo CD | A tool that keeps the cluster the same as the YAML in Git |
+| GitHub Actions | A tool on GitHub that runs a job every time you push |
 
 ## How it works
 
@@ -35,6 +37,12 @@ Inside Triton, one call runs four steps:
 
 ```
 preprocess -> face detector -> postprocess (align + crop) -> ArcFace
+```
+
+## How the project is delivered
+
+```
+git push -> GitHub Actions (lists what changed) -> Argo CD (updates the cluster)
 ```
 
 ## What you need before you start
@@ -59,7 +67,8 @@ FR_Project/
 │   ├── postprocess/        Python step after the detector (align + crop)
 │   └── face_pipeline/      the ensemble that connects all steps
 ├── k8s/                    Kubernetes YAML (Deployments and Services)
-└── argocd/                 Argo CD Application YAML
+├── argocd/                 Argo CD Application YAML
+└── .github/workflows/      GitHub Actions (change tracking)
 ```
 
 ---
@@ -345,6 +354,8 @@ Argo CD runs inside the cluster, watches this GitHub repo, and keeps the cluster
 git push -> Argo CD sees the change -> Argo CD updates the cluster
 ```
 
+In this project one Argo CD application, called **`face-recognition`**, manages all four components (face-ui, face-app, qdrant and triton). Auto sync is on.
+
 ## Install Argo CD
 
 ```bash
@@ -380,22 +391,22 @@ argocd login localhost:8443 --username admin --insecure
 
 The UI is at https://localhost:8443 (user `admin`).
 
-## Create the apps
+## Create the app
 
-Each component has one Application file in `argocd/`. Example for `face-ui`:
+The Application file lives in `argocd/`:
 
 ```yaml
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: face-ui
+  name: face-recognition
   namespace: argocd
 spec:
   project: default
   source:
     repoURL: https://github.com/abdulrehmna-Gith/FR_Project.git
     targetRevision: main
-    path: k8s/face-ui
+    path: k8s
   destination:
     server: https://kubernetes.default.svc
     namespace: default
@@ -409,22 +420,29 @@ Apply and check:
 
 ```bash
 kubectl apply -f argocd/
-argocd app list
-argocd app get face-ui
+kubectl get applications -n argocd
+argocd app get face-recognition
 ```
+
+You should see `Synced` and `Healthy`.
 
 ## Main commands
 
 | Task | Command |
 |---|---|
 | List apps | `argocd app list` |
-| See status | `argocd app get <app>` |
-| See differences | `argocd app diff <app>` |
-| Deploy now | `argocd app sync <app>` |
+| See status | `argocd app get face-recognition` |
+| See differences | `argocd app diff face-recognition` |
+| Deploy now | `argocd app sync face-recognition` |
+| See history | `argocd app history face-recognition` |
 
-## Give a teammate access to only face-ui
+In the UI, open the `face-recognition` app and click **History and Rollback** to see every sync.
 
-Do not share your admin kubeconfig. Use an Argo CD account that can only see and sync `face-ui`:
+Argo CD only deploys changes under its `path` (`k8s/`). A change to the README or the workflow keeps the app `Synced` and adds no new history row.
+
+## Give a teammate access to only the app
+
+Do not share your admin kubeconfig. Create an Argo CD account that can only see and sync this app:
 
 ```bash
 kubectl edit configmap argocd-cm -n argocd
@@ -434,11 +452,50 @@ kubectl edit configmap argocd-cm -n argocd
 kubectl edit configmap argocd-rbac-cm -n argocd
 #   data:
 #     policy.csv: |
-#       p, teamlead, applications, get, default/face-ui, allow
-#       p, teamlead, applications, sync, default/face-ui, allow
+#       p, teamlead, applications, get, default/face-recognition, allow
+#       p, teamlead, applications, sync, default/face-recognition, allow
 
 argocd account update-password --account teamlead --new-password <password>
 ```
+
+To limit a teammate to only `face-ui`, create a separate Argo CD application for `k8s/face-ui` and give the account access to that one.
+
+---
+
+# Track changes with GitHub Actions
+
+A GitHub Action in `.github/workflows/changes.yaml` runs on every push to `main` and on every pull request. It shows who made the change, which files changed and how many lines changed.
+
+```
+git push -> GitHub Actions lists the changed files -> Argo CD syncs the cluster
+```
+
+See the results:
+
+1. Open the repo on GitHub and click the **Actions** tab.
+2. Click the latest `track-changes` run.
+3. Open the `changes` job, or read the **Summary** at the top of the run.
+
+| Letter | Meaning |
+|---|---|
+| `A` | File added |
+| `M` | File modified |
+| `D` | File deleted |
+| `R` | File renamed |
+
+For now this workflow only reports changes. It does not build images or touch the cluster. Argo CD deploys whatever changes under `k8s/`.
+
+## Daily workflow
+
+```bash
+git add .
+git commit -m "Describe your change"
+git push origin main
+```
+
+1. GitHub Actions starts and lists the changed files (Actions tab).
+2. If the change is under `k8s/`, Argo CD syncs it and adds a row in **History and Rollback**.
+3. Check the result with `kubectl get all` or the Argo CD UI.
 
 ---
 
@@ -458,9 +515,12 @@ argocd account update-password --account teamlead --new-password <password>
 | Triton exits after `Ctrl + C` with a long wait | FastAPI still has a connection open | Stop FastAPI first |
 | `argocd: command not found` | CLI is not installed | Install it (see Deploy with Argo CD) |
 | `Argo CD server address unspecified` | You are not logged in | Run `argocd login` |
-| `application not found` | The app was never created | Run `kubectl apply -f argocd/` |
+| `application not found` | Wrong app name, or the app was never created | Use `face-recognition`, or run `kubectl apply -f argocd/` |
+| App is `Synced` but History is empty | No sync has run yet | Click **Sync** in the UI, or push a change under `k8s/` |
 | `curl: (23) client returned ERROR on write` | curl cannot write the file | Download to `/tmp` |
 | Pod in `ImagePullBackOff` or `CrashLoopBackOff` | Wrong image, or the app crashes | `kubectl describe pod <pod>` and `kubectl logs <pod>` |
+| No run in the GitHub **Actions** tab | Workflow file is in the wrong place | It must be `.github/workflows/changes.yaml` on `main` |
+| `git push` is rejected | GitHub has newer commits | `git pull --rebase origin main`, then push again |
 
 ---
 
@@ -468,3 +528,4 @@ argocd account update-password --account teamlead --new-password <password>
 
 - This project runs on **CPU**. For GPU, remove `KIND_CPU` from the configs and use the NVIDIA Container Toolkit.
 - Never push a kubeconfig, token or password to Git.
+- Never type a token or password directly in a command. It is saved in your shell history.
